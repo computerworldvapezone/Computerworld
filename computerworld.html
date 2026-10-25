@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Computer World Barlekha Moulvibazar</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<style>
+:root{--ac:#8b5cf6}
+body{background:#07070c;color:#e6e6ef;font-family:'Sora',system-ui,sans-serif}
+.btn{background:var(--ac);color:#fff;border-radius:.7rem;padding:.6rem 1rem;font-weight:600;transition:filter .15s}
+.btn:hover{filter:brightness(1.15)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn2{background:#1b1b28;color:#ddd;border-radius:.7rem;padding:.5rem .8rem;font-size:.85rem}
+.inp{width:100%;background:#0d0d15;border:1px solid #2a2a3c;border-radius:.6rem;padding:.55rem .75rem;color:#fff;font-size:.9rem}
+.inp:focus{outline:2px solid var(--ac);outline-offset:1px}
+.card{background:#101018;border:1px solid #21212f;border-radius:1rem}
+.smoke{background:radial-gradient(60% 80% at 20% 0%,color-mix(in srgb,var(--ac) 35%,transparent),transparent),radial-gradient(50% 60% at 90% 30%,color-mix(in srgb,var(--ac) 18%,transparent),transparent)}
+button:focus-visible,a:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){.rise{animation:rise .7s ease both}@keyframes rise{from{opacity:0;transform:translateY(14px)}}}
+</style>
+</head>
+<body>
+<div id="top"></div>
+<main class="max-w-6xl mx-auto px-4 pb-16"><div class="flex gap-2 mb-4"><input id="q" class="inp" placeholder="Search products..." oninput="render()" aria-label="Search"><select id="cat" class="inp max-w-[11rem]" onchange="render()" aria-label="Category"></select></div><div id="grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-5"></div></main>
+<footer id="foot" class="border-t border-[#1d1d2a] py-8 text-center text-sm text-gray-400"></footer>
+<div id="modal"></div>
+<div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70]"></div>
+
+<script>
+/* ====== CONFIG ====== */
+const DB = 'https://vapezone-e218c-default-rtdb.firebaseio.com';   // Firebase Realtime Database
+const W3F_KEY = 'YOUR_WEB3FORMS_ACCESS_KEY_HERE';                  // <-- paste your Web3Forms access key here
+const FB_API_KEY = 'AIzaSyCtgwfL7-hlinNljx6hg_V-15RGyxzr0ac';       // Firebase Web API key
+
+/* ====== HELPERS ====== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const tk = n => '৳' + Number(n || 0).toLocaleString('en-US');
+let tok = sessionStorage.getItem('vz_tok') || '', tokExp = +sessionStorage.getItem('vz_exp') || 0;
+function setTok(t, rf, ex) { tok = t; tokExp = Date.now() + ex * 1000; sessionStorage.setItem('vz_tok', t); sessionStorage.setItem('vz_ref', rf); sessionStorage.setItem('vz_exp', tokExp); }
+async function fresh() {
+  if (!tok || Date.now() < tokExp - 60000) return;
+  const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FB_API_KEY}`, {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(sessionStorage.getItem('vz_ref'))}).then(r => r.json()).catch(() => ({}));
+  if (!r.id_token) { logout(); throw new Error('Session expired. Please log in again.'); }
+  setTok(r.id_token, r.refresh_token, +r.expires_in);
+}
+async function api(path, method = 'GET', body) {
+  await fresh();
+  const r = await fetch(`${DB}/${path}.json${tok ? '?auth=' + tok : ''}`, {method, headers: {'Content-Type': 'application/json'}, body: body !== undefined ? JSON.stringify(body) : undefined});
+  if (!r.ok) throw new Error('DB ' + r.status);
+  return r.json();
+}
+const sha = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map(x => x.toString(16).padStart(2, '0')).join('');
+function toast(m) { const t = $('#toast'); t.innerHTML = `<div class="card px-4 py-2 text-sm shadow-xl">${esc(m)}</div>`; clearTimeout(toast.t); toast.t = setTimeout(() => t.innerHTML = '', 3500); }
+const PH = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="400" height="400" fill="#14141f"/><text x="200" y="210" font-size="22" text-anchor="middle" fill="#444">No image</text></svg>');
+function img2b64(f) { return new Promise(r => { const i = new Image(); i.onload = () => { const s = Math.min(1, 600 / Math.max(i.width, i.height)), c = document.createElement('canvas'); c.width = i.width * s; c.height = i.height * s; c.getContext('2d').drawImage(i, 0, 0, c.width, c.height); r(c.toDataURL('image/jpeg', .72)); }; i.src = URL.createObjectURL(f); }); }
+
+/* ====== STATE ====== */
+const D = {name:'Computer World Barlekha Moulvibazar', tagline:'Premium vape, pods and accessories', notice:'Delivery all over Bangladesh. Please check stock before ordering.', logo:'', accent:'#8b5cf6', phone:'', address:'Barlekha, Moulvibazar', bkash:'', nagad:'', bkashLogo:'', nagadLogo:'', footer:'18+ only. Nicotine addictive.', delivery:60};
+let P = {}, S = {...D}, cart = {}, admin = !!tok, tab = 'products', editId = null;
+const out = p => !p.inStock || Number(p.qty) <= 0;
+
+async function load() {
+  try { P = await api('products') || {}; S = {...D, ...(await api('settings') || {})}; }
+  catch (e) { toast('Could not load data. Check the Firebase rules.'); }
+  render();
+}
+
+/* ====== STOREFRONT ====== */
+function render() {
+  document.documentElement.style.setProperty('--ac', S.accent || '#8b5cf6');
+  document.title = S.name;
+  const n = Object.values(cart).reduce((a, b) => a + b, 0);
+  $('#top').innerHTML = `
+  <header class="sticky top-0 z-30 bg-[#07070c]/90 backdrop-blur border-b border-[#1d1d2a]"><div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+    <div class="flex items-center gap-2 font-extrabold tracking-tight">${S.logo ? `<img src="${esc(S.logo)}" alt="" class="h-8 w-8 rounded-lg object-cover">` : `<span class="h-8 w-8 rounded-lg grid place-items-center" style="background:var(--ac)">C</span>`}<span class="text-sm sm:text-base">${esc(S.name)}</span></div>
+    <button onclick="openCart()" class="btn2 relative" aria-label="Cart">Cart <span class="ml-1 font-bold" style="color:var(--ac)">${n}</span></button></div></header>
+  ${S.notice ? `<div class="text-center text-xs sm:text-sm py-2 px-4" style="background:color-mix(in srgb,var(--ac) 22%,#0a0a10)">${esc(S.notice)}</div>` : ''}
+  <section class="smoke"><div class="max-w-6xl mx-auto px-4 py-14 md:py-24 rise">
+    <h1 class="text-4xl md:text-6xl font-extrabold leading-[1.05] tracking-tight max-w-3xl">${esc(S.name)}</h1>
+    <p class="mt-4 text-gray-300 max-w-xl">${esc(S.tagline)}</p>
+    <a href="#grid" class="btn inline-block mt-7">Shop now</a></div></section>
+  <h2 class="max-w-6xl mx-auto px-4 pt-10 pb-4 text-xl font-bold">Products</h2>`;
+  const cats = [...new Set(Object.values(P).map(p => p.category).filter(Boolean))], cs = $('#cat'), cv = cs.value, qs = $('#q').value.toLowerCase();
+  cs.innerHTML = '<option value="">All categories</option>' + cats.map(c => `<option ${c === cv ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  const list = Object.entries(P).filter(([, p]) => (!cv || p.category === cv) && (!qs || (p.name + ' ' + (p.desc || '')).toLowerCase().includes(qs)));
+  $('#grid').innerHTML = list.length ? list.map(([id, p]) => `
+    <article class="card overflow-hidden flex flex-col ${out(p) ? 'opacity-70' : ''}">
+      <div class="relative aspect-square bg-[#14141f]"><img src="${esc(p.image) || PH}" alt="${esc(p.name)}" loading="lazy" onerror="this.src='${PH}'" class="w-full h-full object-cover">
+        <span class="absolute top-2 left-2 text-xs font-semibold px-2 py-1 rounded-full ${out(p) ? 'bg-red-600' : 'bg-emerald-600'}">${out(p) ? 'Stock Out' : 'In Stock'}</span></div>
+      <div class="p-3 flex flex-col flex-1"><h3 class="font-semibold text-sm leading-snug">${esc(p.name)}</h3>
+        <p class="text-xs text-gray-400 mt-1 line-clamp-2">${esc(p.desc)}</p>
+        <div class="mt-auto pt-3"><div class="flex items-end justify-between"><span class="font-extrabold" style="color:var(--ac)">${tk(p.price)}</span><span class="text-xs text-gray-400">${out(p) ? '0' : p.qty} pcs</span></div>
+        <button class="btn w-full mt-2 text-sm" ${out(p) ? 'disabled' : ''} onclick="addCart('${id}')">${out(p) ? 'Stock Out' : 'Add to cart'}</button></div></div>
+    </article>`).join('') : '<p class="col-span-full text-gray-400">No products found.</p>';
+  $('#foot').innerHTML = `<div class="max-w-6xl mx-auto px-4 space-y-1"><p class="font-semibold text-gray-200">${esc(S.name)}</p>
+    ${S.phone ? `<p>${esc(S.phone)}</p>` : ''}${S.address ? `<p>${esc(S.address)}</p>` : ''}<p class="text-xs">${esc(S.footer)}</p>
+    <button class="text-xs underline mt-3 text-gray-500" onclick="adminOpen()">Admin</button></div>`;
+}
+function addCart(id) {
+  const p = P[id]; if (!p || out(p)) return;
+  if ((cart[id] || 0) >= p.qty) return toast('Not enough stock');
+  cart[id] = (cart[id] || 0) + 1; render(); toast(p.name + ' added to cart');
+}
+
+/* ====== CART + CHECKOUT ====== */
+const closeM = () => $('#modal').innerHTML = '';
+const shell = (inner, w = 'max-w-lg') => `<div class="fixed inset-0 z-50 bg-black/70 overflow-y-auto" onclick="if(event.target===this)closeM()"><div class="card ${w} mx-auto my-6 p-5 relative">
+  <button class="absolute top-3 right-3 btn2" onclick="closeM()" aria-label="Close">✕</button>${inner}</div></div>`;
+const payLogo = (url, txt, col) => url ? `<img src="${esc(url)}" alt="${txt}" class="h-7 object-contain">` : `<span class="font-extrabold italic text-lg" style="color:${col}">${txt}</span>`;
+
+function openCart() {
+  const ids = Object.keys(cart).filter(i => P[i]);
+  if (!ids.length) { $('#modal').innerHTML = shell('<h2 class="font-bold text-lg">Cart</h2><p class="mt-3 text-gray-400">Your cart is empty.</p>'); return; }
+  const sub = ids.reduce((a, i) => a + P[i].price * cart[i], 0), del = Number(S.delivery) || 0;
+  $('#modal').innerHTML = shell(`<h2 class="font-bold text-lg mb-3">Checkout</h2>
+  <div class="space-y-2">${ids.map(i => `<div class="flex items-center gap-3 text-sm"><img src="${esc(P[i].image) || PH}" class="h-12 w-12 rounded-lg object-cover" onerror="this.src='${PH}'" alt="">
+    <div class="flex-1"><p class="font-semibold">${esc(P[i].name)}</p><p class="text-gray-400">${tk(P[i].price)}</p></div>
+    <button class="btn2" onclick="qty('${i}',-1)">−</button><span>${cart[i]}</span><button class="btn2" onclick="qty('${i}',1)">+</button></div>`).join('')}</div>
+  <div class="text-sm mt-3 border-t border-[#21212f] pt-3 space-y-1"><div class="flex justify-between"><span>Subtotal</span><span>${tk(sub)}</span></div><div class="flex justify-between"><span>Delivery</span><span>${tk(del)}</span></div>
+    <div class="flex justify-between font-bold text-base"><span>Total</span><span style="color:var(--ac)">${tk(sub + del)}</span></div></div>
+  <form id="ck" onsubmit="placeOrder(event)" class="mt-4 space-y-3">
+    <input class="inp" name="cname" placeholder="Your name" required>
+    <input class="inp" name="phone" placeholder="Phone (01XXXXXXXXX)" inputmode="tel" required>
+    <textarea class="inp" name="address" rows="2" placeholder="Full address (area, upazila, district)" required></textarea>
+    <textarea class="inp" name="note" rows="2" placeholder="Delivery note (optional)"></textarea>
+    <fieldset class="space-y-2"><legend class="text-sm font-semibold mb-1">Payment method</legend>
+      ${[['COD','Cash on Delivery',''],['bKash',payLogo(S.bkashLogo,'bKash','#e2136e'),''],['Nagad',payLogo(S.nagadLogo,'Nagad','#f6921e'),'']].map(([v, l], k) => `
+      <label class="card flex items-center gap-3 p-3 cursor-pointer"><input type="radio" name="pay" value="${v}" ${k ? '' : 'checked'} onchange="payChange(this.value)"><span class="text-sm">${l}</span></label>`).join('')}</fieldset>
+    <div id="payBox" class="hidden space-y-2 text-sm"></div>
+    <button class="btn w-full" id="sendBtn">Place order</button></form>`);
+}
+function qty(i, d) { const n = (cart[i] || 0) + d; if (n <= 0) delete cart[i]; else if (n > P[i].qty) return toast('Not enough stock'); else cart[i] = n; render(); openCart(); }
+function payChange(v) {
+  const b = $('#payBox');
+  if (v === 'COD') { b.classList.add('hidden'); b.innerHTML = ''; return; }
+  const num = v === 'bKash' ? S.bkash : S.nagad;
+  b.classList.remove('hidden');
+  b.innerHTML = `<p class="text-gray-300">${v} Send Money to: <b class="select-all">${esc(num) || '(number not set)'}</b></p>
+    <input class="inp" name="sender" placeholder="Your ${v} number" required><input class="inp" name="trx" placeholder="Transaction ID (TrxID)" required>`;
+}
+async function placeOrder(e) {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target)), btn = $('#sendBtn');
+  if (!/^01[3-9]\d{8}$/.test(f.phone)) return toast('Enter a valid 11-digit phone number');
+  btn.disabled = true; btn.textContent = 'Processing...';
+  try {
+    P = await api('products') || {};                                   // fresh stock check
+    const ids = Object.keys(cart);
+    for (const i of ids) if (!P[i] || out(P[i]) || cart[i] > P[i].qty) { delete cart[i]; render(); throw new Error('"' + (P[i]?.name || 'Product') + '" is out of stock or running low. Please update your cart.'); }
+    const items = ids.map(i => ({id: i, name: P[i].name, price: P[i].price, qty: cart[i]}));
+    const total = items.reduce((a, x) => a + x.price * x.qty, 0) + (Number(S.delivery) || 0);
+    const order = {...f, items, total, status: 'new', time: new Date().toISOString()};
+    await api('orders', 'POST', order);
+    await Promise.all(ids.map(i => { const q = P[i].qty - cart[i]; return api('products/' + i, 'PATCH', {qty: q, inStock: q > 0}); }));
+    const summary = items.map(x => `${x.name} x${x.qty} = ${x.price * x.qty}`).join('\n');
+    const w = await fetch('https://api.web3forms.com/submit', {method: 'POST', headers: {'Content-Type': 'application/json', Accept: 'application/json'}, body: JSON.stringify({
+      access_key: W3F_KEY, subject: `New order - ${S.name}`, from_name: S.name, Name: f.cname, Phone: f.phone, Address: f.address, 'Delivery Note': f.note || '-',
+      Payment: f.pay, 'Sender Number': f.sender || '-', TrxID: f.trx || '-', Items: summary, 'Total (BDT)': total})}).then(r => r.json()).catch(() => ({success: false}));
+    if (!w.success) toast('Order saved, but the email was not sent (check the Web3Forms key)');
+    cart = {}; await load();
+    $('#modal').innerHTML = shell(`<div class="text-center py-6"><h2 class="font-bold text-xl">Order placed</h2><p class="text-gray-300 mt-2 text-sm">Thank you, ${esc(f.cname)}. We will contact you by phone shortly.<br>Total: <b>${tk(total)}</b></p><button class="btn mt-5" onclick="closeM()">Close</button></div>`);
+  } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Place order'; }
+}
+
+/* ====== ADMIN ====== */
+function adminOpen() {
+  if (admin) return adminRender();
+  $('#modal').innerHTML = shell(`<h2 class="font-bold text-lg mb-3">Admin login</h2><form onsubmit="adminLogin(event)" class="space-y-3">
+    <input class="inp" type="email" name="email" placeholder="Admin email" autocomplete="username" required>
+    <input class="inp" type="password" name="pw" placeholder="Password" autocomplete="current-password" required><button class="btn w-full">Login</button></form>`, 'max-w-sm');
+}
+async function adminLogin(e) {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FB_API_KEY}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: f.email, password: f.pw, returnSecureToken: true})}).then(r => r.json()).catch(() => ({}));
+  if (!r.idToken) return toast('Wrong email or password (or API key not set)');
+  setTok(r.idToken, r.refreshToken, +r.expiresIn); admin = true; adminRender();
+}
+function logout() { admin = false; tok = ''; ['vz_tok', 'vz_ref', 'vz_exp'].forEach(k => sessionStorage.removeItem(k)); closeM(); }
+async function adminRender() {
+  let body = '';
+  if (tab === 'products') {
+    const p = editId ? P[editId] || {} : {inStock: true};
+    body = `<form onsubmit="saveProduct(event)" class="space-y-2 mb-5"><h3 class="font-semibold">${editId ? 'Edit product' : 'New product'}</h3>
+      <input class="inp" name="pname" placeholder="Product name" value="${esc(p.name)}" required>
+      <input class="inp" name="category" placeholder="Category (e.g. Pod, Juice, Coil)" value="${esc(p.category)}">
+      <div class="grid grid-cols-2 gap-2"><input class="inp" type="number" min="0" name="price" placeholder="Price (৳)" value="${p.price ?? ''}" required><input class="inp" type="number" min="0" name="qty" placeholder="Stock quantity" value="${p.qty ?? ''}" required></div>
+      <input class="inp" id="imgurl" name="image" placeholder="Image URL (or choose a file below)" value="${p.image && !p.image.startsWith('data:') ? esc(p.image) : ''}">
+      <input type="file" accept="image/*" class="text-xs" onchange="upImg(this)"><div id="imgnote" class="text-xs text-gray-400">${p.image?.startsWith('data:') ? 'Image uploaded' : ''}</div>
+      <textarea class="inp" name="desc" rows="2" placeholder="Short description">${esc(p.desc)}</textarea>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="inStock" ${p.inStock ? 'checked' : ''}> In Stock</label>
+      <div class="flex gap-2"><button class="btn">${editId ? 'Update' : 'Add product'}</button>${editId ? '<button type="button" class="btn2" onclick="editId=null;adminRender()">Cancel</button>' : ''}</div></form>
+      <div class="space-y-2">${Object.entries(P).map(([i, x]) => `<div class="card p-2 flex items-center gap-2 text-sm"><img src="${esc(x.image) || PH}" class="h-10 w-10 rounded object-cover" onerror="this.src='${PH}'" alt="">
+        <div class="flex-1 min-w-0"><p class="truncate font-semibold">${esc(x.name)}</p><p class="text-xs text-gray-400">${tk(x.price)} · qty ${x.qty} · ${out(x) ? 'Stock Out' : 'In Stock'}</p></div>
+        <button class="btn2" onclick="toggleStock('${i}')">${x.inStock ? 'Set Out' : 'Set In'}</button><button class="btn2" onclick="editId='${i}';adminRender()">Edit</button><button class="btn2 text-red-400" onclick="delProduct('${i}')">Del</button></div>`).join('') || '<p class="text-gray-400 text-sm">No products yet.</p>'}</div>`;
+  } else if (tab === 'orders') {
+    let o = {}; try { o = await api('orders') || {}; } catch (e) {}
+    body = Object.entries(o).reverse().map(([i, x]) => `<div class="card p-3 text-sm space-y-1"><div class="flex justify-between"><b>${esc(x.cname)} · ${esc(x.phone)}</b><span class="text-xs text-gray-400">${new Date(x.time).toLocaleString()}</span></div>
+      <p class="text-gray-300">${esc(x.address)}</p>${x.note ? `<p class="text-gray-400">Note: ${esc(x.note)}</p>` : ''}
+      <p>${(x.items || []).map(t => esc(t.name) + ' x' + t.qty).join(', ')}</p><p>${esc(x.pay)}${x.trx ? ' · ' + esc(x.sender) + ' · ' + esc(x.trx) : ''} · <b>${tk(x.total)}</b></p>
+      <div class="flex gap-2"><button class="btn2" onclick="stOrder('${i}','${x.status}')">Status: ${esc(x.status)}</button><button class="btn2 text-red-400" onclick="delOrder('${i}')">Delete</button></div></div>`).join('') || '<p class="text-gray-400 text-sm">No orders yet.</p>';
+    body = `<div class="space-y-2">${body}</div>`;
+  } else {
+    const F = [['name','Shop name'],['tagline','Tagline'],['notice','Notice bar (leave empty to hide)'],['logo','Logo image URL'],['accent','Accent color','color'],['phone','Phone'],['address','Address'],['delivery','Delivery charge (৳)','number'],['bkash','bKash number'],['nagad','Nagad number'],['bkashLogo','bKash logo URL'],['nagadLogo','Nagad logo URL'],['footer','Footer text']];
+    body = `<form onsubmit="saveSettings(event)" class="space-y-2">${F.map(([k, l, t]) => `<label class="block text-xs text-gray-400">${l}<input class="inp mt-1" type="${t || 'text'}" name="${k}" value="${esc(S[k])}"></label>`).join('')}
+      <button class="btn w-full">Save settings</button></form>`;
+  }
+  $('#modal').innerHTML = shell(`<div class="flex items-center gap-2 mb-4 pr-12"><h2 class="font-bold text-lg flex-1">Admin panel</h2><button class="btn2" onclick="logout()">Logout</button></div>
+    <div class="flex gap-2 mb-4">${['products','orders','settings'].map(t => `<button class="btn2 ${t === tab ? 'ring-1' : ''}" style="${t === tab ? 'color:var(--ac)' : ''}" onclick="tab='${t}';adminRender()">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>${body}`, 'max-w-2xl');
+}
+async function upImg(el) { if (!el.files[0]) return; $('#imgurl').value = await img2b64(el.files[0]); $('#imgnote').textContent = 'Image ready (click save)'; }
+async function saveProduct(e) {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target)), id = editId || 'p' + Date.now();
+  try {
+    await api('products/' + id, 'PUT', {name: f.pname, category: f.category.trim(), price: +f.price, qty: +f.qty, image: f.image || '', desc: f.desc, inStock: !!f.inStock});
+    editId = null; await load(); adminRender(); toast('Product saved');
+  } catch (err) { toast('Save failed: ' + err.message); }
+}
+async function toggleStock(i) { await api('products/' + i, 'PATCH', {inStock: !P[i].inStock}); await load(); adminRender(); }
+async function delProduct(i) { if (!confirm('Delete this product?')) return; await api('products/' + i, 'DELETE'); await load(); adminRender(); }
+async function stOrder(i, s) { await api('orders/' + i, 'PATCH', {status: {new: 'confirmed', confirmed: 'delivered'}[s] || 'new'}); adminRender(); }
+async function delOrder(i) { if (!confirm('Delete this order?')) return; await api('orders/' + i, 'DELETE'); adminRender(); }
+async function saveSettings(e) {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target)); f.delivery = +f.delivery || 0;
+  try { await api('settings', 'PATCH', f); await load(); adminRender(); toast('Settings saved'); } catch (err) { toast('Save failed: ' + err.message); }
+}
+
+/* ====== INIT ====== */
+load(); setInterval(() => { if (!$('#modal').innerHTML) load(); }, 30000);
+</script>
+</body>
+</html>
